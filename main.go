@@ -70,8 +70,6 @@ const (
 	ORIGIN_BASE    = "https://chat.z.ai"
 )
 
-// 匿名token开关
-const ANON_TOKEN_ENABLED = true
 
 // 从环境变量初始化配置
 func initConfig() {
@@ -1400,7 +1398,8 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 	// 选择本次对话使用的token
 	authToken := ZAI_TOKEN
-	if ANON_TOKEN_ENABLED {
+	if authToken == "" {
+		debugLog("ZAI_TOKEN未配置，尝试获取匿名token...")
 		if t, err := getAnonymousToken(); err == nil {
 			authToken = t
 			debugLog("匿名token获取成功: %s...", func() string {
@@ -1410,8 +1409,18 @@ func handleChatCompletions(w http.ResponseWriter, r *http.Request) {
 				return t
 			}())
 		} else {
-			debugLog("匿名token获取失败，回退固定token: %v", err)
+			debugLog("匿名token获取失败: %v", err)
 		}
+	}
+
+	// 检查token是否最终有效
+	if authToken == "" {
+		debugLog("错误：Auth token为空。ZAI_TOKEN未设置，且无法获取匿名token。")
+		http.Error(w, "Authentication failed: No valid token available", http.StatusUnauthorized)
+		duration := time.Since(startTime)
+		recordRequestStats(startTime, path, http.StatusUnauthorized)
+		addLiveRequest(r.Method, path, http.StatusUnauthorized, duration, "", userAgent)
+		return
 	}
 
 	// 调用上游API
@@ -1442,6 +1451,7 @@ func callUpstreamWithHeaders(upstreamReq UpstreamRequest, refererChatID string, 
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	req.Header.Set("User-Agent", BROWSER_UA)
 	req.Header.Set("Authorization", "Bearer "+authToken)
+    fmt.Println("Authorization: Bearer " + authToken)
 	req.Header.Set("Accept-Language", "zh-CN")
 	req.Header.Set("sec-ch-ua", SEC_CH_UA)
 	req.Header.Set("sec-ch-ua-mobile", SEC_CH_UA_MOB)
